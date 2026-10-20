@@ -286,23 +286,31 @@ test("the one-line installer's shim is what agents get, so updates never break t
   assert.equal(wiring({execPath: '/x/node', script: '/checkout/bin/agentchat.js', pathDirs: [], realpath: p => p, home, platform: 'darwin'}).command, '/x/node', 'a dev checkout keeps node + script');
 });
 
-test('an invite is one pasted line per OS that checks the package, installs it and joins under the chosen name', async () => {
+test('an invite is a link for the friend\'s agent, plus one pinned line per OS that checks the package, installs it and joins under the chosen name', async () => {
   const net = network(), kavin = await net.owner('kavin'), sha = 'c'.repeat(64), file = `agentchat-${VERSION}.tgz`;
   await kavin.joinOwner({handle: 'kavin', relay: RELAY, packageSha: sha});
   const named = await kavin.invite({for: '@Sam'});
-  assert.ok(named.message.includes(`Mac or Linux: paste this into Terminal (macOS 13.5+ or 64-bit Linux):\ncd "$(mktemp -d)" && curl -fsSLO ${RELAY}/dl/${file} && echo "${sha}  ${file}" | $(command -v shasum >/dev/null && echo 'shasum -a 256' || echo sha256sum) -c - && tar xzf ${file} && sh package/install.sh ${named.code} --as sam\n`));
-  assert.ok(named.message.includes(`Windows 10 or 11: paste this into PowerShell:\n$ErrorActionPreference='Stop'; `));
-  assert.ok(named.message.includes(`if ((Get-FileHash ${file} -Algorithm SHA256).Hash -ne '${sha}') { throw 'The download did not match its fingerprint.' }; & "$env:SystemRoot\\System32\\tar.exe" -xzf ${file}; powershell -NoProfile -ExecutionPolicy Bypass -File package\\install.ps1 ${named.code} --as sam\n`));
-  assert.doesNotMatch(named.message, /Not on a Mac/);
+  const link = new URL(named.link), fragment = new URLSearchParams(link.hash.slice(1));
+  assert.equal(named.message.split('\n')[0], `Install Agentchat, here's the link: ${named.link}`);
+  assert.deepEqual([link.origin + link.pathname, link.search, fragment.get('code'), fragment.get('as')], [`${RELAY}/join`, '', named.code, 'sam'], 'the code rides after #, which never reaches the server');
+  assert.ok(w.decodeInvite(fragment.get('code')), 'the code survives the link intact');
+  assert.match(named.message, /@kavin invited you .* Give the link to your AI agent, or open it for the steps\. This invite works once and expires /);
+  assert.doesNotMatch(named.message, /install\.sh|install\.ps1/, 'the message to send is the link; the lines are separate');
+  assert.ok(named.commands.includes(`Mac or Linux: paste this into Terminal (macOS 13.5+ or 64-bit Linux):\ncd "$(mktemp -d)" && curl -fsSLO ${RELAY}/dl/${file} && echo "${sha}  ${file}" | $(command -v shasum >/dev/null && echo 'shasum -a 256' || echo sha256sum) -c - && tar xzf ${file} && sh package/install.sh ${named.code} --as sam\n`));
+  assert.ok(named.commands.includes(`Windows 10 or 11: paste this into PowerShell:\n$ErrorActionPreference='Stop'; `));
+  assert.ok(named.commands.includes(`if ((Get-FileHash ${file} -Algorithm SHA256).Hash -ne '${sha}') { throw 'The download did not match its fingerprint.' }; & "$env:SystemRoot\\System32\\tar.exe" -xzf ${file}; powershell -NoProfile -ExecutionPolicy Bypass -File package\\install.ps1 ${named.code} --as sam\n`));
+  assert.doesNotMatch(named.commands, /Not on a Mac/);
   const plain = await kavin.invite();
-  assert.ok(plain.message.includes(`sh package/install.sh ${plain.code}\n`), 'with no chosen name the line leaves --as out');
-  assert.match(plain.message, /Not on a Mac\? Add --as <your name> to the end of the line\./, 'Linux and Windows have no username to fall back on');
-  assert.doesNotMatch(named.message + plain.message, /yourname|Node 22/);
+  assert.equal(new URLSearchParams(new URL(plain.link).hash.slice(1)).get('as'), null, 'with no chosen name the link leaves as out');
+  assert.ok(plain.commands.includes(`sh package/install.sh ${plain.code}\n`), 'with no chosen name the line leaves --as out');
+  assert.match(plain.commands, /Not on a Mac\? Add --as <your name> to the end of the line\./, 'Linux and Windows have no username to fall back on');
+  assert.doesNotMatch(named.message + named.commands + plain.message + plain.commands, /yourname|Node 22/);
   assert.equal(w.decodeInvite(plain.code).p, sha, 'the code itself still carries the package');
   kavin.store.meta('config', JSON.stringify({...kavin.config(), package: {sha256: sha, url: `${RELAY}/dl/agentchat-0.2.0.tgz`}}));
-  const macOnly = (await kavin.invite()).message;
-  assert.match(macOnly, /Paste this into Terminal on your Mac/, "0.2.0's installer only runs on macOS");
-  assert.doesNotMatch(macOnly, /Windows|Linux|install\.ps1/);
+  const macOnly = await kavin.invite();
+  assert.match(macOnly.message, /Paste this into Terminal on your Mac/, "0.2.0's installer only runs on macOS");
+  assert.doesNotMatch(macOnly.message, /Windows|Linux|install\.ps1/);
+  assert.equal(macOnly.link, undefined, 'the join page installs 0.3.0 lines, which a 0.2.0 inviter never sends');
   kavin.store.meta('config', JSON.stringify({...kavin.config(), package: {sha256: sha, url: `${RELAY}/dl/agentchat-0.1.1.tgz`}}));
   const legacy = (await kavin.invite()).message;
   assert.match(legacy, /npm i -g \/tmp\/agentchat\.tgz/, 'a package without install.sh keeps the npm instructions');

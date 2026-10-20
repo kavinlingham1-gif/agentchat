@@ -197,7 +197,7 @@ try {
     case 'invite': {
       const invite = await (await createNode()).invite({for: typeof flags.for === 'string' ? flags.for : undefined});
       const copied = process.platform === 'darwin' && spawnSync('/usr/bin/pbcopy', {input: invite.message}).status === 0;
-      console.log(`Send this to the person you're inviting${copied ? ' (it is on your clipboard)' : ''}:\n\n${invite.message}`);
+      console.log(`Send this to the person you're inviting${copied ? ' (it is on your clipboard)' : ''}:\n\n${invite.message}${invite.commands ? `\n\nNo AI agent? Send this instead; each line is pinned to your install:\n\n${invite.commands}` : ''}`);
       break;
     }
     case 'approvals': {

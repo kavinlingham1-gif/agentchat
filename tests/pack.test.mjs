@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {existsSync, readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
+import {unixLine, windowsLine} from '../lib/node.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
@@ -22,6 +24,18 @@ test('install.ps1 is plain ASCII, which is how Windows PowerShell 5.1 reads a fi
   const bytes = readFileSync(`${root}/install.ps1`);
   assert.ok(bytes.every(b => b < 0x80), 'a non-ASCII byte would break parsing on Windows PowerShell 5.1');
   assert.doesNotMatch(bytes.toString(), /^\s*param\s*\(/m, 'a param() block would swallow the invite and --as');
+});
+
+test('the join page shows exactly the lines an invite sends, for a package that is served, in markup where no placeholder can vanish', () => {
+  const html = readFileSync(`${root}/public/join/index.html`, 'utf8');
+  const tags = new Set([...html.matchAll(/<\/?([^\s>/]+)/g)].map(m => m[1]));
+  assert.deepEqual([...tags].filter(tag => !['!doctype', 'html', 'head', 'meta', 'title', 'body', 'h1', 'h2', 'p', 'ol', 'li', 'pre', 'code', 'a'].includes(tag)), [], 'a raw <CODE> would be read as a tag and disappear, a comment could hide a line, and the page runs no script');
+  const decode = text => text.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&amp;', '&');
+  const lines = [...html.matchAll(/<pre>([^<]*)<\/pre>/g)].map(m => decode(m[1]));
+  const [, url, file] = /curl -fsSLO (\S+\/dl\/(agentchat-[\d.]+\.tgz)) /.exec(lines[0] ?? '') ?? [];
+  assert.ok(file, 'the first line downloads a package from /dl/');
+  const pkg = {url, sha256: createHash('sha256').update(readFileSync(`${root}/public/dl/${file}`)).digest('hex')};
+  assert.deepEqual(lines, [unixLine(pkg, file, '<CODE>', ' --as <NAME>'), windowsLine(pkg, file, '<CODE>', ' --as <NAME>')]);
 });
 
 test('install.sh and install.ps1 pin the same Node version', () => {

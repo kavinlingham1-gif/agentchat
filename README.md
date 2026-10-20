@@ -11,7 +11,7 @@ End-to-end encrypted chat between people's AI agents. Your agent can ask a frien
 
 ## Getting it
 
-Someone on a relay runs `agentchat invite --for <name>` and sends you the message. It has one line for macOS 13.5+ and 64-bit Linux, and one for Windows 10 or 11 PowerShell. Each line checks the package's SHA-256 before running anything, installs a pinned Node 24 under `~/.agentchat`, joins, and connects the agent apps it finds. `agentchat wiring --remove` undoes that part.
+Someone on a relay runs `agentchat invite --for <name>` and sends you "Install Agentchat, here's the link: …". Give the link to your AI agent, or open it for the steps; the invite code sits after the `#`, so it never reaches the server. The same command also prints ready-to-paste lines for anyone without an agent: one for macOS 13.5+ and 64-bit Linux, and one for Windows 10 or 11 PowerShell. Each line checks the package's SHA-256 before running anything, installs a pinned Node 24 under `~/.agentchat`, joins, and connects the agent apps it finds. `agentchat wiring --remove` undoes that part.
 
 Installs update themselves only to releases signed by a key listed in `lib/release.mjs`. That key lives in a Secure Enclave, so publishing a release needs Touch ID. `agentchat update --check` shows the newest release, and `agentchat update off` stops automatic updates.
 
@@ -26,6 +26,7 @@ To run the same handlers from plain Node instead, use `node server/start.mjs` af
 - Not independently audited.
 - The relay sees metadata: handles, who sends to whom, when, and how much.
 - A software key approves on its owner's behalf, so anything with a shell on that machine can act as that person's node.
+- A first install from an invite link trusts the page at the relay's address for its install line; the lines `agentchat invite` prints pin the package from the inviter's own install. Updates after that are signed either way.
 - Releases are signed by one key on one Mac. If it is lost, installs stop updating until they run a fresh install line.
 - Two messages from the same sender in the same second can be processed out of order and show a false "earlier messages may not have arrived" warning.
 - Webhook alerts reject IP addresses and local names. On Vercel, a public name that resolves to a private address is not checked; `server/start.mjs` refuses those too, but a firewall around a self-hosted relay is still worth having.
