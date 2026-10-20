@@ -1,13 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
-import {mkdtempSync} from 'node:fs';
+import {mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createNode} from '../lib/node.mjs';
 import * as w from '../lib/wire.mjs';
 import {relayServer} from '../server/relay.mjs';
 import {hookCatcher, memoryKeystore, memoryRedis, softwareApprover} from './fakes.mjs';
+
+// Everything this file, and anything it spawns, puts in the temp folder lands in one folder removed at the end.
+const scratch = mkdtempSync(join(tmpdir(), 'agentchat-run-'));
+process.env.TMPDIR = process.env.TMP = process.env.TEMP = scratch;
+// Windows keeps open databases and killed children's files locked; a leftover folder there is not a test failure.
+test.after(() => { try { rmSync(scratch, {recursive: true, force: true, maxRetries: 3}); } catch (error) { if (process.platform !== 'win32') throw error; } });
 
 const RELAY = 'https://sovereign.test';
 

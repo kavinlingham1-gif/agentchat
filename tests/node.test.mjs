@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
-import {existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -15,6 +15,12 @@ import {defaultHome} from '../lib/store.mjs';
 import {mcpServer, toolsFor} from '../lib/tools.mjs';
 import * as w from '../lib/wire.mjs';
 import {RELAY, hookCatcher, memoryKeystore, network, softwareApprover} from './fakes.mjs';
+
+// Everything this file, and anything it spawns, puts in the temp folder lands in one folder removed at the end.
+const scratch = mkdtempSync(join(tmpdir(), 'agentchat-run-'));
+process.env.TMPDIR = process.env.TMP = process.env.TEMP = scratch;
+// Windows keeps open databases and killed children's files locked; a leftover folder there is not a test failure.
+test.after(() => { try { rmSync(scratch, {recursive: true, force: true, maxRetries: 3}); } catch (error) { if (process.platform !== 'win32') throw error; } });
 
 const window = {start: '2026-10-10T12:00:00-05:00', end: '2026-10-10T18:00:00-05:00'};
 const envelopesFor = (net, handle) => [...net.redis.data.keys()].filter(k => k.startsWith(`env:${handle}:`));

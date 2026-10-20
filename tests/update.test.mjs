@@ -13,6 +13,12 @@ import {defaultHome} from '../lib/store.mjs';
 import * as w from '../lib/wire.mjs';
 import {RELAY, network, softwareApprover} from './fakes.mjs';
 
+// Everything this file, and anything it spawns, puts in the temp folder lands in one folder removed at the end.
+const scratch = mkdtempSync(join(tmpdir(), 'agentchat-run-'));
+process.env.TMPDIR = process.env.TMP = process.env.TEMP = scratch;
+// Windows keeps open databases and killed children's files locked; a leftover folder there is not a test failure.
+test.after(() => { try { rmSync(scratch, {recursive: true, force: true, maxRetries: 3}); } catch (error) { if (process.platform !== 'win32') throw error; } });
+
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const NODE_VERSION = /^NODE_VERSION=(.+)$/m.exec(readFileSync(join(REPO, 'install.sh'), 'utf8'))[1];
 const windows = process.platform === 'win32';

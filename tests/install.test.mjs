@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync, spawnSync} from 'node:child_process';
 import {createHash, randomBytes} from 'node:crypto';
-import {copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync} from 'node:fs';
+import {copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -10,6 +10,12 @@ import {addToProfile, installApp, launcherTarget, launcherText, withInstallLock,
 import {VERSION, unixLine} from '../lib/node.mjs';
 import {defaultHome} from '../lib/store.mjs';
 import {b64, encodeInvite} from '../lib/wire.mjs';
+
+// Everything this file, and anything it spawns, puts in the temp folder lands in one folder removed at the end.
+const scratch = mkdtempSync(join(tmpdir(), 'agentchat-run-'));
+process.env.TMPDIR = process.env.TMP = process.env.TEMP = scratch;
+// Windows keeps open databases and killed children's files locked; a leftover folder there is not a test failure.
+test.after(() => { try { rmSync(scratch, {recursive: true, force: true, maxRetries: 3}); } catch (error) { if (process.platform !== 'win32') throw error; } });
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const NODE_VERSION = /^NODE_VERSION=(.+)$/m.exec(readFileSync(join(REPO, 'install.sh'), 'utf8'))[1];
@@ -34,7 +40,14 @@ const pack = () => (packed ??= (() => {
   return {file, url: `file://${file}`, sha256: createHash('sha256').update(readFileSync(file)).digest('hex')};
 })());
 
-const pasteLine = (shell, home, tail, extraEnv = {}) => spawnSync(shell, ['-c', unixLine(pack(), `agentchat-${VERSION}.tgz`, tail)], {env: {...process.env, HOME: home, SHELL: '/bin/zsh', ...extraEnv}, encoding: 'utf8'});
+// macOS mktemp ignores TMPDIR, so the folder a pasted line makes there is found by name and removed.
+const lineTemp = process.platform === 'darwin' ? execFileSync('getconf', ['DARWIN_USER_TEMP_DIR'], {encoding: 'utf8'}).trim() : scratch;
+const pasteLine = (shell, home, tail, extraEnv = {}) => {
+  const before = new Set(readdirSync(lineTemp));
+  const result = spawnSync(shell, ['-c', unixLine(pack(), `agentchat-${VERSION}.tgz`, tail)], {env: {...process.env, HOME: home, SHELL: '/bin/zsh', ...extraEnv}, encoding: 'utf8'});
+  for (const name of readdirSync(lineTemp)) if (!before.has(name) && existsSync(join(lineTemp, name, `agentchat-${VERSION}.tgz`))) rmSync(join(lineTemp, name), {recursive: true, force: true});
+  return result;
+};
 
 test('launchers: the Unix line keeps the exact format 0.2.0 installers read, and the Windows one is relative to itself', () => {
   const unixText = launcherText({root: "/Users/o'brien/.agentchat", node: "/Users/o'brien/.agentchat/node/v24.22.0-arm64/bin/node", version: '0.3.0', platform: 'darwin'});
