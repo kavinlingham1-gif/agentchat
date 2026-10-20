@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {execFileSync, spawn} from 'node:child_process';
+import {execFileSync, spawn, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync} from 'node:fs';
+import {copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {createServer} from 'node:http';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -48,24 +48,25 @@ test('an install updates itself from a signed release while an old agentchat mcp
   if (windows) copyFileSync(process.execPath, join(nodeDir, 'node.exe')); else symlinkSync(process.execPath, join(nodeDir, 'bin', 'node'));
 
   // This version, installed by its own install step, the way the pasted line does it.
-  const work = temp('agentchat-pkgs-');
+  const work = temp('agentchat-pkgs-'), tar = windows ? join(process.env.SystemRoot, 'System32', 'tar.exe') : 'tar';
   execFileSync(windows ? 'npm.cmd' : 'npm', ['pack', '--pack-destination', work], {cwd: REPO, stdio: 'ignore', shell: windows});
-  execFileSync(windows ? join(process.env.SystemRoot, 'System32', 'tar.exe') : 'tar', ['-xzf', join(work, `agentchat-${VERSION}.tgz`), '-C', work]);
+  execFileSync(tar, ['-xzf', join(work, `agentchat-${VERSION}.tgz`), '-C', work]);
   execFileSync(join(nodeDir, windows ? 'node.exe' : 'bin/node'), [join(work, 'package', 'bin', 'agentchat.js'), 'install'], {env, stdio: 'ignore'});
   assert.equal(currentInstall(root).version, VERSION);
 
   // The next version: the same package with a higher version number, signed by a test release key.
   const pkgJson = join(work, 'package', 'package.json');
   writeFileSync(pkgJson, readFileSync(pkgJson, 'utf8').replace(`"version": "${VERSION}"`, `"version": "${NEXT}"`));
-  execFileSync(windows ? join(process.env.SystemRoot, 'System32', 'tar.exe') : 'tar', ['-czf', join(work, `agentchat-${NEXT}.tgz`), '-C', work, 'package']);
+  execFileSync(tar, ['-czf', join(work, `agentchat-${NEXT}.tgz`), '-C', work, 'package']);
   const tarball = readFileSync(join(work, `agentchat-${NEXT}.tgz`));
   const signer = softwareApprover(), keys = [{handle: 'kavin', ik: 'IK', rk: signer.publicKey}];
   const sign = async fields => { const payload = w.approvalPayload('kavin', 'IK', 'release.publish', fields); return JSON.stringify({payload, sig: await signer.sign(payload)}); };
   const release = {version: NEXT, package: `agentchat-${NEXT}.tgz`, sha256: createHash('sha256').update(tarball).digest('hex'), size: tarball.length};
   let manifest = null;
+  const packages = new Map([[`/dl/agentchat-${NEXT}.tgz`, tarball]]);
   const server = createServer((req, res) => {
     if (req.url === '/dl/release.json' && manifest) return res.end(manifest);
-    if (req.url === `/dl/agentchat-${NEXT}.tgz`) return res.end(tarball);
+    if (packages.has(req.url)) return res.end(packages.get(req.url));
     res.writeHead(404).end('{"error":"Not found"}');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -96,8 +97,13 @@ test('an install updates itself from a signed release while an old agentchat mcp
   assert.equal((await old.rpc(1, 'initialize', {protocolVersion: '2025-11-25', capabilities: {}, clientInfo: {name: 'test', version: '0'}})).result.serverInfo.version, VERSION);
   old.notify('notifications/initialized');
 
+  // Someone removed the PATH setup the first install added; an automatic update must leave that alone.
+  rmSync(join(home, '.zprofile'), {force: true});
+  const userPath = () => (windows ? spawnSync('reg', ['query', 'HKCU\\Environment', '/v', 'Path'], {encoding: 'utf8'}).stdout ?? '' : '');
   const applied = await update();
   assert.deepEqual([applied.status, applied.version], ['updated', NEXT], applied.error);
+  assert.equal(existsSync(join(home, '.zprofile')), false, 'an update never recreates the PATH block');
+  assert.ok(!userPath().toLowerCase().includes(join(root, 'bin').toLowerCase()), "an update never adds itself to the user's PATH");
   assert.equal(currentInstall(root).version, NEXT);
   assert.ok(existsSync(join(root, 'app', VERSION, 'package.json')), 'the old version stays for the agents still running it');
   assert.equal(execFileSync(windows ? 'cmd' : launcher, windows ? ['/d', '/c', launcher, 'version'] : ['version'], {env, encoding: 'utf8'}).trim(), NEXT, 'the next launch is the new version');
@@ -106,4 +112,18 @@ test('an install updates itself from a signed release while an old agentchat mcp
   assert.equal(bot.config().package.sha256, release.sha256);
   assert.equal(bot.updateState().result, `updated to ${NEXT}`);
   assert.equal((await update()).status, 'current');
+
+  // A release whose last setup step fails after the launcher has switched reports what is installed now, not "nothing changed".
+  const LAST = NEXT.replace(/\d+$/, n => String(Number(n) + 1)), entry = join(work, 'package', 'bin', 'agentchat.js');
+  writeFileSync(pkgJson, readFileSync(pkgJson, 'utf8').replace(`"version": "${NEXT}"`, `"version": "${LAST}"`));
+  writeFileSync(entry, readFileSync(entry, 'utf8').replace('\n', "\nif (process.argv[2] === 'join') { console.error('setup broke'); process.exit(1); }\n"));
+  execFileSync(tar, ['-czf', join(work, `agentchat-${LAST}.tgz`), '-C', work, 'package']);
+  const broken = readFileSync(join(work, `agentchat-${LAST}.tgz`));
+  packages.set(`/dl/agentchat-${LAST}.tgz`, broken);
+  manifest = await sign({version: LAST, package: `agentchat-${LAST}.tgz`, sha256: createHash('sha256').update(broken).digest('hex'), size: broken.length});
+  const partial = await update();
+  assert.deepEqual([partial.status, partial.installed, partial.was], ['failed', LAST, NEXT], partial.error);
+  assert.doesNotMatch(partial.error, /paste the same line|--as/, 'an update has no line to paste and no handle to pick');
+  assert.equal(currentInstall(root).version, LAST);
+  assert.match(bot.updateState().result, new RegExp(`installed ${LAST.replace(/\./g, '\\.')}, but its final setup step failed`));
 });

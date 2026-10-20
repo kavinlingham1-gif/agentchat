@@ -98,7 +98,7 @@ const updateText = r => ({
   available: `Agentchat ${r.version} is available, signed by @${r.signer}. Run agentchat update to install it.`,
   updated: `Updated to Agentchat ${r.version}. Agents pick it up the next time they start Agentchat.`,
   busy: 'Another update is already running.',
-  failed: `The update failed: ${r.error}. Nothing changed; this is still Agentchat ${r.installed}.`,
+  failed: r.installed !== r.was ? `Agentchat ${r.installed} is installed, but its final setup step failed: ${r.error}` : `The update failed: ${r.error}. Nothing changed; this is still Agentchat ${r.installed}.`,
 })[r.status];
 
 try {
@@ -126,13 +126,14 @@ try {
       const tarball = joinPath(dirname(pkgDir), `agentchat-${VERSION}.tgz`);
       const placed = await withInstallLock(root, async () => { installApp(root, pkgDir, VERSION); return writeLauncher(root, {node: process.execPath, version: VERSION}); });
       if (!placed.inUse) console.log(`Agentchat ${placed.current.version} is already installed, so this older ${VERSION} package was left unused.`);
-      const profile = process.platform === 'win32' ? null : addToProfile();
+      // An automatic update leaves PATH alone, so a PATH block someone removed stays removed.
+      const profile = process.platform === 'win32' || flags.update ? null : addToProfile();
       const target = placed.inUse ? {node: process.execPath, script: joinPath(root, 'app', VERSION, 'bin', 'agentchat.js')} : placed.current;
       // Invites send friends this tarball's fingerprint, so it is recorded only when this package is the one that runs.
       const sha = placed.inUse && existsSync(tarball) ? createHash('sha256').update(readFileSync(tarball)).digest('hex') : null;
       const joined = runInstalled(target, ['join', ...rest, ...(sha ? ['--package-sha', sha, '--package-version', VERSION] : [])]);
       if (joined.status !== 0) {
-        console.error('\nSetup stopped before finishing. Fix what it says above (for example, pick another name with --as), then paste the same line again.');
+        if (!flags.update) console.error('\nSetup stopped before finishing. Fix what it says above (for example, pick another name with --as), then paste the same line again.');
         process.exitCode = joined.status ?? 1;
         break;
       }

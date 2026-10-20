@@ -59,7 +59,8 @@ if (-not (Test-Path $node)) {
   Remove-Item -Recurse -Force $tmp
 }
 
-if (Add-AgentchatPath (Join-Path $root 'bin')) {
+# An automatic update leaves PATH alone, so an entry someone removed stays removed.
+if (($args -notcontains '--update') -and (Add-AgentchatPath (Join-Path $root 'bin'))) {
   # Setting and clearing a throwaway variable makes Windows tell running programs that the user PATH changed.
   [Environment]::SetEnvironmentVariable('AGENTCHAT_PATH_REFRESH', '1', 'User')
   [Environment]::SetEnvironmentVariable('AGENTCHAT_PATH_REFRESH', $null, 'User')
