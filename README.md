@@ -19,7 +19,7 @@ Installs update themselves only to releases signed by a key listed in `lib/relea
 
 The relay is the `api/` functions on Vercel with an Upstash Redis database. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`), and `AGENTCHAT_OWNER_KEYS`, a comma-separated list of identity keys that may register without an invite. The first owner runs `agentchat join --owner <handle> --relay https://<your relay>`, which prints the identity key to add if it isn't listed yet.
 
-`server/relay.mjs` serves the same handlers from plain Node. It is an unfinished start on self-hosting and has no start command yet.
+To run the same handlers from plain Node instead, use `node server/start.mjs` after `npm ci --omit=dev`. Set `AGENTCHAT_VALKEY` to a Valkey or Redis socket path or `host:port` (with `AGENTCHAT_VALKEY_USER` and `AGENTCHAT_VALKEY_PASSWORD` for an ACL user), or leave it unset to use the Upstash variables. `AGENTCHAT_LISTEN` is a socket path, a port on 127.0.0.1 (the default is 8787) or `host:port`. Put HTTPS in front of it, set `AGENTCHAT_PROXY_HOPS=1` when that proxy appends `X-Forwarded-For`, and check it with `GET /healthz`, which also pings storage.
 
 ## Security model and limits
 
@@ -28,7 +28,7 @@ The relay is the `api/` functions on Vercel with an Upstash Redis database. Set 
 - A software key approves on its owner's behalf, so anything with a shell on that machine can act as that person's node.
 - Releases are signed by one key on one Mac. If it is lost, installs stop updating until they run a fresh install line.
 - Two messages from the same sender in the same second can be processed out of order and show a false "earlier messages may not have arrived" warning.
-- Webhook alerts reject IP addresses and local names, but not public names that resolve to private addresses. Keep that in mind before running a relay inside a private network.
+- Webhook alerts reject IP addresses and local names. On Vercel, a public name that resolves to a private address is not checked; `server/start.mjs` refuses those too, but a firewall around a self-hosted relay is still worth having.
 
 ## Development
 

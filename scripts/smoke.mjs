@@ -5,12 +5,13 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createNode} from '../lib/node.mjs';
 import {upstash} from '../lib/relay.mjs';
+import {valkey} from '../server/valkey.mjs';
 import {memoryKeystore, softwareApprover} from '../tests/fakes.mjs';
 
 // Two throwaway nodes talk through the deployed relay; then every relay key is scanned for plaintext and both handles delete themselves.
-const relay = process.env.SMOKE_RELAY, seed = process.env.SMOKE_OWNER_SEED;
-if (!relay || !seed || !process.env.KV_REST_API_URL) {
-  console.error('Needs SMOKE_RELAY, SMOKE_OWNER_SEED (whose identity key is in AGENTCHAT_OWNER_KEYS) and the Upstash env from `vercel env pull .env.local`.');
+const relay = process.env.SMOKE_RELAY, seed = process.env.SMOKE_OWNER_SEED, store = process.env.AGENTCHAT_VALKEY;
+if (!relay || !seed || !(store || process.env.KV_REST_API_URL)) {
+  console.error('Needs SMOKE_RELAY, SMOKE_OWNER_SEED (whose identity key is in AGENTCHAT_OWNER_KEYS) and the relay\'s storage: the Upstash env from `vercel env pull .env.local`, or AGENTCHAT_VALKEY with a user that may SCAN.');
   process.exit(1);
 }
 
@@ -18,7 +19,7 @@ const tag = randomBytes(3).toString('hex'), owner = `smoke_a_${tag}`, friend = `
 const open = async keystore => { const home = mkdtempSync(join(tmpdir(), 'agentchat-smoke-')); homes.push(home); return createNode({home, keystore, approver: softwareApprover()}); };
 const markers = {purpose: `smoke purpose ${tag}`, note: `smoke note ${tag}`, space: `Smoke space ${tag}`, entry: `smoke entry ${tag}`, text: `smoke text ${tag}`};
 const start = new Date(Date.now() + 86400000).toISOString(), end = new Date(Date.now() + 90000000).toISOString();
-const redis = upstash();
+const redis = store ? valkey(store, {user: process.env.AGENTCHAT_VALKEY_USER, password: process.env.AGENTCHAT_VALKEY_PASSWORD}) : upstash();
 
 async function everyValue() {
   const keys = [];

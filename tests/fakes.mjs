@@ -22,6 +22,7 @@ export function memoryRedis(clock = () => Date.now()) {
   const of = (key, make) => { let value = live(key); if (value === undefined) data.set(key, value = make()); return value; };
   const span = (length, start, stop) => [Number(start), Number(stop) < 0 ? length + Number(stop) + 1 : Number(stop) + 1];
   const commands = {
+    PING: () => 'PONG',
     GET: key => live(key) ?? null,
     SET(key, value, ...options) {
       if (options.includes('NX') && live(key) !== undefined) return null;
