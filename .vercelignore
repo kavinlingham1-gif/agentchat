@@ -1,0 +1,8 @@
+/bin
+/swift
+/tests
+/scripts
+/server
+/install.sh
+/install.ps1
+.env*

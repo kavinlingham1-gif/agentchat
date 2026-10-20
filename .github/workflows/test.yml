@@ -1,0 +1,38 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Node 24.22.0 is what the installers pin; macOS also runs the Node the release script tests with.
+          - {os: ubuntu-latest, node: 24.22.0}
+          - {os: ubuntu-24.04-arm, node: 24.22.0}
+          - {os: macos-latest, node: 24.22.0}
+          - {os: macos-latest, node: 22.22.0}
+          - {os: windows-latest, node: 24.22.0}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      # Test the bytes that ship, not line-ending conversions of them.
+      - if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm test
+      - name: Rebuild the Touch ID helper from source and rerun its tests
+        if: runner.os == 'macOS' && matrix.node == '24.22.0'
+        run: npm run helper && node --test tests/wire.test.mjs
